@@ -9,9 +9,13 @@ from tests.pages.login_page import LoginPage
 from tests.pages.waiting_page import WaitingPage
 
 
+
+###   Тест кейс 1: Победа игрока после уничтожения флота противника  ###
+
+
 @allure.epic("Морской бой 2.0")
 @allure.feature("Автоматизированные сценарии")
-@allure.title("Тест кейс 1: два игрока, ручная расстановка у второго, ход `мимо` у первого")
+@allure.title("Тест кейс 1: Победа игрока после уничтожения флота противника")
 @pytest.mark.ui
 def test_case_01_multiplayer_miss_flow(ui_config: UiConfig, driver_factory):
     driver_1 = driver_factory()

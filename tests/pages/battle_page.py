@@ -6,19 +6,17 @@ from tests.pages.base_page import UiOperationError
 
 
 class BattlePage(BasePage):
-    """Экран боя: ходы, выстрелы, чат и проверка очереди хода."""
+    """Экран боя: ходы, выстрелы, чат и завершение игры."""
 
     def __init__(self, driver: WebDriver, timeout_sec: int):
-        """Инициализирует Page Object боевого экрана."""
-
         super().__init__(driver, timeout_sec)
 
     def wait_battle_screen(self) -> None:
-        """Дожидается появления заголовка экрана боя."""
+        """Ожидает появление экрана боя по заголовку."""
 
         try:
             self.wait.until(lambda drv: "БИТВА" in drv.find_element(By.ID, "titleSpan").text)
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
+        except Exception as exc:  # noqa: BLE001
             self._raise_ui_error(
                 action="Ожидание экрана боя",
                 by=By.ID,
@@ -31,16 +29,6 @@ class BattlePage(BasePage):
         """Возвращает текущий текст индикатора хода."""
 
         return self.wait_visible(By.ID, "turnSpan").text
-
-    def countdown_text(self) -> str:
-        """Возвращает текущее значение таймера матча."""
-
-        return self.wait_visible(By.ID, "countdown").text.strip()
-
-    def is_turn_of(self, player_name: str) -> bool:
-        """Проверяет, что ход принадлежит указанному игроку."""
-
-        return player_name in self.turn_text()
 
     def fire_enemy_cell(self, row: int, col: int) -> None:
         """Выполняет выстрел по клетке поля противника."""
@@ -63,13 +51,12 @@ class BattlePage(BasePage):
             ids_sample = self.driver.execute_script(
                 "return Array.from(document.querySelectorAll('#enemyField [id]')).slice(0,40).map(e=>e.id)"
             )
-        except Exception:  # noqa: BLE001 - диагностический блок.
-            ids_sample = ["<не удалось получить список id из enemyField>"]
+        except Exception:
+            ids_sample = ["<не удалось получить список id enemyField>"]
 
         raise UiOperationError(
             f"Не удалось кликнуть по клетке противника ({row}, {col}). "
-            f"Проверенные локаторы: {locators}. "
-            f"Пример id в enemyField: {ids_sample}. "
+            f"Проверенные локаторы: {locators}. Пример id в enemyField: {ids_sample}. "
             f"Ошибки попыток: {errors}"
         )
 
@@ -78,7 +65,7 @@ class BattlePage(BasePage):
 
         try:
             self.wait.until(lambda drv: text in (drv.find_element(By.ID, "chatLog").get_attribute("value") or ""))
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
+        except Exception as exc:  # noqa: BLE001
             current_chat = self.wait_visible(By.ID, "chatLog").get_attribute("value")
             self._raise_ui_error(
                 action="Ожидание текста в чате",
@@ -93,7 +80,7 @@ class BattlePage(BasePage):
 
         try:
             self.wait.until(lambda drv: text in drv.find_element(By.ID, "turnSpan").text)
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
+        except Exception as exc:  # noqa: BLE001
             current_turn = self.turn_text()
             self._raise_ui_error(
                 action="Ожидание смены хода",
@@ -109,11 +96,11 @@ class BattlePage(BasePage):
         return self.wait_visible(By.ID, "chatLog").get_attribute("value")
 
     def get_own_ships_matrix(self) -> list[list[int]]:
-        """Возвращает матрицу собственного флота текущего игрока (из JS-переменной `myShips`)."""
+        """Возвращает матрицу собственного флота из JS-переменной `myShips`."""
 
         try:
             ships = self.driver.execute_script("return (typeof myShips !== 'undefined') ? myShips : null;")
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
+        except Exception as exc:  # noqa: BLE001
             self._raise_ui_error(
                 action="Получение матрицы собственного флота",
                 details="Не удалось получить JS-переменную myShips",
@@ -134,69 +121,15 @@ class BattlePage(BasePage):
                 matrix.append([int(x) for x in row])
         return matrix
 
-    def get_available_enemy_targets(self) -> list[tuple[int, int]]:
-        """Возвращает список доступных для выстрела клеток поля противника."""
-
-        try:
-            targets = self.driver.execute_script(
-                """
-                const blocks = Array.from(document.querySelectorAll("#enemyField [id*='|b_']"));
-                return blocks
-                    .filter(el => el.children.length === 0 && el.childNodes.length === 0 && el.className !== 'enemyShip')
-                    .map(el => {
-                        const m = el.id.match(/\\|b_(\\d+)_(\\d+)/);
-                        return m ? [Number(m[1]), Number(m[2])] : null;
-                    })
-                    .filter(Boolean);
-                """
-            )
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
-            self._raise_ui_error(
-                action="Получение доступных клеток поля противника",
-                details="Не удалось прочитать состояние enemyField через executeScript",
-                original_exc=exc,
-            )
-
-        return [(int(x), int(y)) for x, y in targets]
-
-    def fire_first_available_enemy_cell(self) -> tuple[int, int]:
-        """Стреляет в первую доступную клетку противника и возвращает ее координаты."""
-
-        targets = self.get_available_enemy_targets()
-        if not targets:
-            raise UiOperationError("Нет доступных клеток для выстрела на поле противника.")
-
-        row, col = targets[0]
-        chat_before = self.chat_text()
-        self.fire_enemy_cell(row, col)
-
-        try:
-            self.wait.until(
-                lambda drv: (
-                    (drv.find_element(By.ID, "chatLog").get_attribute("value") or "") != chat_before
-                    or "Побед" in drv.find_element(By.ID, "turnSpan").text
-                    or "Поздравляем" in drv.find_element(By.ID, "turnSpan").text
-                    or "НИЧЬЯ" in drv.find_element(By.ID, "turnSpan").text
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
-            self._raise_ui_error(
-                action="Ожидание результата выстрела",
-                details=f"После выстрела в ({row}, {col}) чат и индикатор хода не обновились",
-                original_exc=exc,
-            )
-
-        return row, col
-
     def fire_enemy_cell_via_command(self, row: int, col: int) -> None:
-        """Выполняет выстрел по координате через JS-команду `fire(x, y)`."""
+        """Выполняет выстрел через JS-команду `fire(x, y)`."""
 
         try:
             can_fire = self.driver.execute_script("return typeof fire === 'function';")
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
+        except Exception as exc:  # noqa: BLE001
             self._raise_ui_error(
                 action="Проверка JS-функции fire",
-                details="Не удалось проверить наличие функции fire(x, y) на странице",
+                details="Не удалось проверить наличие функции fire(x, y)",
                 original_exc=exc,
             )
 
@@ -209,7 +142,7 @@ class BattlePage(BasePage):
         chat_before = self.chat_text()
         try:
             self.driver.execute_script("fire(arguments[0], arguments[1]);", int(row), int(col))
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
+        except Exception as exc:  # noqa: BLE001
             self._raise_ui_error(
                 action="Выстрел через JS-команду",
                 details=f"Не удалось выполнить fire({row}, {col})",
@@ -225,37 +158,20 @@ class BattlePage(BasePage):
                     or "НИЧЬЯ" in drv.find_element(By.ID, "turnSpan").text
                 )
             )
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
+        except Exception as exc:  # noqa: BLE001
             self._raise_ui_error(
                 action="Ожидание результата выстрела",
                 details=f"После fire({row}, {col}) чат и индикатор хода не обновились",
                 original_exc=exc,
             )
 
-    def wait_game_finished_with_winner(self, winner_name: str) -> None:
-        """Ожидает завершение игры и проверяет, что победил указанный игрок."""
-
-        try:
-            self.wait.until(lambda drv: self.has_game_finished_message())
-            self.wait.until(lambda drv: self.has_winner_message(winner_name))
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
-            self._raise_ui_error(
-                action="Проверка победителя",
-                details=(
-                    f"Не найдено сообщение о победе игрока '{winner_name}'. "
-                    f"Текущий turnSpan: '{self.turn_text()}'. "
-                    f"Текущий chatLog: '{self.chat_text()}'"
-                ),
-                original_exc=exc,
-            )
-
     def has_winner_message(self, winner_name: str) -> bool:
-        """Проверяет без ожидания, что на экране есть сообщение о победе игрока."""
+        """Проверяет без ожидания, что на экране есть сообщение о победителе."""
 
         try:
             chat = self.driver.find_element(By.ID, "chatLog").get_attribute("value") or ""
             turn = self.driver.find_element(By.ID, "turnSpan").text or ""
-        except Exception:  # noqa: BLE001 - при переходных состояниях вернем False.
+        except Exception:  # noqa: BLE001
             return False
 
         joined = f"{turn}\n{chat}"
@@ -267,12 +183,12 @@ class BattlePage(BasePage):
         return any(check in joined for check in checks)
 
     def has_game_finished_message(self) -> bool:
-        """Проверяет без ожидания, что игра завершена (победа или ничья)."""
+        """Проверяет без ожидания, что игра завершена."""
 
         try:
             chat = self.driver.find_element(By.ID, "chatLog").get_attribute("value") or ""
             turn = self.driver.find_element(By.ID, "turnSpan").text or ""
-        except Exception:  # noqa: BLE001 - переходные состояния.
+        except Exception:  # noqa: BLE001
             return False
 
         joined = f"{turn}\n{chat}"
@@ -286,11 +202,11 @@ class BattlePage(BasePage):
         return any(token in joined for token in finish_tokens)
 
     def wait_game_finished(self) -> None:
-        """Ожидает завершение игры (без проверки имени победителя)."""
+        """Ожидает завершение игры."""
 
         try:
             self.wait.until(lambda drv: self.has_game_finished_message())
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
+        except Exception as exc:  # noqa: BLE001
             self._raise_ui_error(
                 action="Ожидание завершения игры",
                 details=(
@@ -299,24 +215,3 @@ class BattlePage(BasePage):
                 ),
                 original_exc=exc,
             )
-
-    def wait_countdown_not_zero(self) -> str:
-        """Ожидает запуск таймера и проверяет, что он не равен `00:00`."""
-
-        try:
-            self.wait.until(
-                lambda drv: (
-                    (drv.find_element(By.ID, "countdown").text or "").strip() != ""
-                    and (drv.find_element(By.ID, "countdown").text or "").strip() != "00:00"
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 - единый формат UI-ошибок.
-            self._raise_ui_error(
-                action="Проверка таймера после выстрела",
-                by=By.ID,
-                value="countdown",
-                details=f"Текущее значение таймера: '{self.countdown_text()}'",
-                original_exc=exc,
-            )
-
-        return self.countdown_text()
